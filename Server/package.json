@@ -1,0 +1,23 @@
+{
+  "name": "big-data-sitasi",
+  "version": "1.0.0",
+  "description": "IoT Monitoring Suhu, Kelembapan, dan Getaran - Direct Ingestion Pipeline (Fastify + MySQL + n8n)",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node src/migrate.js",
+    "seed:test": "node scripts/sendTest.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.28.1",
+    "mysql2": "^3.11.3",
+    "pino-pretty": "^11.2.2"
+  }
+}
