@@ -157,6 +157,60 @@ node scripts/sendTest.js anomaly
 node scripts/sendTest.js collapse
 ```
 
+#### Contoh Output Aktual (terminal)
+
+> Jalankan `npm start` di terminal lain terlebih dulu agar Fastify mendengarkan di `:3000`. Nilai `id` akan menyesuaikan auto-increment baris di `seismic_logs`.
+
+**P-01 — `node scripts/sendTest.js normal`**
+
+```text
+Status: 200
+Body  : {"status":"ok","id":1,"anomaly":false,"alerts":[]}
+```
+
+**P-03 — `node scripts/sendTest.js anomaly`**
+
+```text
+Status: 200
+Body  : {"status":"ok","id":2,"anomaly":true,"alerts":["Gempa Terdeteksi: SI=7 Kayser, PGA=100 Gal","Suhu Overheat: 65C"]}
+```
+
+**P-04 — `node scripts/sendTest.js collapse`**
+
+```text
+Status: 200
+Body  : {"status":"ok","id":3,"anomaly":true,"alerts":["Struktur Berisiko Runtuh: SI=45 Kayser, PGA=642.86 Gal","SI Melampaui Ambang Server: 45 > 5 Kayser","Suhu Overheat: 70.5C"]}
+```
+
+**V-01 — payload tanpa `device_id` (negative test)**
+
+```text
+Status: 400
+Body  : {"error":"Bad Request","message":"Payload tidak sesuai kontrak data","details":[{"keyword":"required","message":"must have required property 'device_id'"}]}
+```
+
+**V-10 — payload dengan field asing `foo` (negative test)**
+
+```text
+Status: 400
+Body  : {"error":"Bad Request","message":"Payload tidak sesuai kontrak data","details":[{"keyword":"additionalProperties","message":"must NOT have additional properties"}]}
+```
+
+**S-01 — `window_end < window_start` (validasi semantik)**
+
+```text
+Status: 400
+Body  : {"error":"Bad Request","message":"window_end harus >= window_start"}
+```
+
+**H-01 — `Invoke-RestMethod ... /health`**
+
+```text
+status db    ts
+------ --    --
+ok    True   1714425123
+```
+
 ### 3.2 PowerShell – body inline
 
 ```powershell

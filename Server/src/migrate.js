@@ -15,10 +15,18 @@ async function main() {
   const raw = fs.readFileSync(sqlPath, 'utf8');
 
   // Pisahkan per statement (sederhana: pakai semicolon di akhir baris).
+  // Buang komentar baris ('-- ...') sebelum filter, agar statement yang
+  // didahului komentar tetap dieksekusi.
   const statements = raw
     .split(/;\s*$/m)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith('--'));
+    .map((s) =>
+      s
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n')
+        .trim()
+    )
+    .filter((s) => s.length > 0);
 
   // Connect TANPA database supaya bisa CREATE DATABASE bila belum ada.
   const conn = await mysql.createConnection({
