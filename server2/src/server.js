@@ -3,7 +3,9 @@
 const Fastify = require('fastify');
 const config = require('./config');
 const db = require('./db');
-const ingestRoutes = require('./routes/ingest');
+
+const sensorLatestRoutes = require('./routes/sensorLatest');
+const mitigasiLogRoutes = require('./routes/mitigasiLog');
 const bmkgRoutes = require('./routes/bmkg');
 
 function buildApp() {
@@ -18,7 +20,7 @@ function buildApp() {
               options: { colorize: true, translateTime: 'HH:MM:ss.l' },
             },
     },
-    bodyLimit: 64 * 1024, // 64 KB sudah lebih dari cukup untuk payload kecil
+    bodyLimit: 128 * 1024,
   });
 
   // Healthcheck
@@ -29,12 +31,29 @@ function buildApp() {
     } catch (_) {
       dbOk = false;
     }
-    return { status: 'ok', db: dbOk, ts: Math.floor(Date.now() / 1000) };
+    return {
+      status: 'ok',
+      service: 'server2-n8n-bridge',
+      db: dbOk,
+      ts: Math.floor(Date.now() / 1000),
+    };
   });
 
+  // Index ringkas — daftar endpoint kontrak n8n.
+  app.get('/', async () => ({
+    service: 'server2-n8n-bridge',
+    endpoints: [
+      'GET  /health',
+      'GET  /api/bmkg/autogempa',
+      'GET  /api/sensor/latest?device_id=...',
+      'POST /api/mitigasi/log',
+    ],
+  }));
+
   // Routes
-  app.register(ingestRoutes);
   app.register(bmkgRoutes);
+  app.register(sensorLatestRoutes);
+  app.register(mitigasiLogRoutes);
 
   // 400 untuk error validasi schema
   app.setErrorHandler((err, request, reply) => {

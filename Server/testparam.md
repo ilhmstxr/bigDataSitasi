@@ -263,7 +263,125 @@ LIMIT 10;
 
 ---
 
-## 4. Checklist Smoke Test (Wajib sebelum deploy)
+## 4. `GET /api/bmkg/*` – Proxy Data Gempabumi BMKG
+
+Tiga endpoint read-only yang mem-forward data dari https://data.bmkg.go.id/DataMKG/TEWS.
+Tidak butuh autentikasi. Wajib mencantumkan **BMKG** sebagai sumber data di UI konsumen.
+
+| #    | Endpoint                       | Deskripsi                              | Sumber JSON                                                      |
+| ---- | ------------------------------ | -------------------------------------- | ---------------------------------------------------------------- |
+| K-01 | `GET /api/bmkg/autogempa`      | Gempabumi terbaru (1 entry)            | `https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json`            |
+| K-02 | `GET /api/bmkg/gempaterkini`   | 15 gempa M 5.0+ terbaru                | `https://data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json`         |
+| K-03 | `GET /api/bmkg/gempadirasakan` | 15 gempa dirasakan terbaru             | `https://data.bmkg.go.id/DataMKG/TEWS/gempadirasakan.json`       |
+
+### 4.1 Bentuk Respons
+
+```json
+{
+  "status": "ok",
+  "attribution": "BMKG (Badan Meteorologi, Klimatologi, dan Geofisika)",
+  "source": "https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json",
+  "fetched_at": "2026-04-29T17:45:12.345Z",
+  "data": {
+    "Tanggal": "29 Apr 2026",
+    "Jam": "17:30:00 WIB",
+    "DateTime": "2026-04-29T10:30:00+00:00",
+    "Coordinates": "-7.42,108.16",
+    "Lintang": "7.42 LS",
+    "Bujur": "108.16 BT",
+    "Magnitude": "5.2",
+    "Kedalaman": "10 km",
+    "Wilayah": "78 km BaratDaya KAB-PANGANDARAN-JABAR",
+    "Potensi": "Tidak berpotensi tsunami",
+    "Dirasakan": "II Pangandaran, II Tasikmalaya",
+    "Shakemap": "20260429173000.mmi.jpg"
+  }
+}
+```
+
+`K-02` dan `K-03` mengembalikan `data` sebagai **array** of object dengan field yang sama (tanpa `Dirasakan`/`Shakemap` untuk K-02).
+
+### 4.2 Skenario Test
+
+| #     | Endpoint                       | Kondisi                                  | Expected                                                                  |
+| ----- | ------------------------------ | ---------------------------------------- | ------------------------------------------------------------------------- |
+| K-01a | `/api/bmkg/autogempa`          | BMKG up, cache kosong                    | `200`, header `X-Cache: MISS`, body sesuai §4.1 (`data` = object)         |
+| K-01b | `/api/bmkg/autogempa`          | Request kedua < 30 detik setelah K-01a   | `200`, header `X-Cache: HIT`, body identik                                |
+| K-01c | `/api/bmkg/autogempa`          | Request ke-3, > 30 detik setelah K-01a   | `200`, header `X-Cache: MISS` (cache expire)                              |
+| K-01d | `/api/bmkg/autogempa`          | Internet putus, cache kosong             | `502 { "error":"Bad Gateway", "message":"Gagal menjangkau server BMKG" }` |
+| K-02a | `/api/bmkg/gempaterkini`       | BMKG up                                  | `200` `data` = array length ≤ 15, `X-Cache: MISS` lalu `HIT`              |
+| K-02b | `/api/bmkg/gempaterkini`       | Timeout > 8 detik                        | `502`, error tidak di-cache                                               |
+| K-03a | `/api/bmkg/gempadirasakan`     | BMKG up                                  | `200` `data` = array length ≤ 15, ada field `Dirasakan`                   |
+| K-04  | Method salah                   | `POST /api/bmkg/autogempa`               | `404`                                                                     |
+| K-05  | Single-flight                  | 10 request paralel, cache kosong         | Semua `200` body identik. Hanya 1 hit ke BMKG (cek log)                   |
+
+### 4.3 Cara Uji Cepat
+
+```powershell
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:3000/api/bmkg/autogempa
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:3000/api/bmkg/gempaterkini
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:3000/api/bmkg/gempadirasakan
+```
+
+```bash
+curl -s http://127.0.0.1:3000/api/bmkg/autogempa | jq .
+curl -s http://127.0.0.1:3000/api/bmkg/gempaterkini | jq '.data | length'
+curl -s http://127.0.0.1:3000/api/bmkg/gempadirasakan | jq '.data[0].Wilayah'
+```
+
+### 4.4 Verifikasi Cache (TTL 30 detik)
+
+Server menambahkan dua header pada respons sukses:
+
+- `X-Cache: MISS` — fetch baru dari BMKG.
+- `X-Cache: HIT`  — dari cache in-memory (TTL 30 detik).
+- `Cache-Control: public, max-age=30`
+
+#### PowerShell
+
+```powershell
+# Request 1 → MISS
+$r1 = Invoke-WebRequest -Uri http://127.0.0.1:3000/api/bmkg/autogempa
+$r1.Headers["X-Cache"]   # MISS
+
+# Request 2 dalam 30 detik → HIT
+$r2 = Invoke-WebRequest -Uri http://127.0.0.1:3000/api/bmkg/autogempa
+$r2.Headers["X-Cache"]   # HIT
+
+# Tunggu cache expire, request 3 → MISS lagi
+Start-Sleep -Seconds 31
+$r3 = Invoke-WebRequest -Uri http://127.0.0.1:3000/api/bmkg/autogempa
+$r3.Headers["X-Cache"]   # MISS
+```
+
+#### curl
+
+```bash
+curl -sI http://127.0.0.1:3000/api/bmkg/autogempa | grep -i 'x-cache\|cache-control'
+```
+
+#### Single-flight (K-05)
+
+```bash
+# 10 request paralel, semua harus selesai dengan body identik.
+# Di log Fastify (terminal `npm run dev`) hanya muncul 1 outbound request ke BMKG.
+seq 1 10 | xargs -I{} -P 10 curl -s -o /dev/null -w "%{http_code} %{header_x-cache}\n" \
+  http://127.0.0.1:3000/api/bmkg/autogempa
+```
+
+PowerShell setara:
+
+```powershell
+1..10 | ForEach-Object -Parallel {
+  (Invoke-WebRequest http://127.0.0.1:3000/api/bmkg/autogempa).Headers["X-Cache"]
+} -ThrottleLimit 10
+```
+
+> Catatan: error response **tidak** di-cache. Saat BMKG down, request berikutnya akan tetap mencoba fetch ulang.
+
+---
+
+## 5. Checklist Smoke Test (Wajib sebelum deploy)
 
 - [ ] H-01 `/health` → `200` dengan `db:true`
 - [ ] P-01 `normal` → `200`, `anomaly:false`, baris baru di `seismic_logs`
@@ -273,4 +391,9 @@ LIMIT 10;
 - [ ] V-10 field asing → `400`
 - [ ] S-01 `window_end < window_start` → `400`
 - [ ] B-04 collapse + earthquake → hanya 1 alert (collapse)
+- [ ] K-01a `/api/bmkg/autogempa` → `200`, `X-Cache: MISS`, `data.Magnitude` ada
+- [ ] K-01b request kedua < 30 detik → `200`, `X-Cache: HIT`
+- [ ] K-02a `/api/bmkg/gempaterkini` → `200`, `data.length` ≤ 15
+- [ ] K-03a `/api/bmkg/gempadirasakan` → `200`, `data[0].Dirasakan` ada
+- [ ] K-05 10 request paralel → log hanya 1 outbound BMKG (single-flight)
 - [ ] (Opsional) Webhook n8n menerima payload bila `N8N_WEBHOOK_URL` di-set

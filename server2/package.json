@@ -1,0 +1,22 @@
+{
+  "name": "server2-n8n-bridge",
+  "version": "1.0.0",
+  "description": "Jembatan API untuk orkestrasi n8n: proxy BMKG, state termal terbaru, dan logger keputusan mitigasi AI.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node src/migrate.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.28.1",
+    "mysql2": "^3.11.3",
+    "pino-pretty": "^11.2.2"
+  }
+}

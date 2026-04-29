@@ -153,3 +153,9 @@ Time Synchronization (Hardware): Karena sistem bergantung pada exact_timestamp d
 Database Connection Pooling (Server): Node.js dilarang keras membuka dan menutup koneksi MySQL (mysql.createConnection) pada setiap HTTP Request. Harus menggunakan arsitektur Connection Pool (mysql.createPool) dengan batas maksimal koneksi diatur (misal: 10) untuk mencegah server MySQL kehabisan memori.
 
 Network Resilience (Hardware): Jika ESP32 gagal melakukan HTTP POST, data 1 menit tersebut akan dibuang. Buffer direset ulang untuk mencegah Memory Leak pada RAM ESP32.
+
+
+RALAT
+https://data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json
+https://data.bmkg.go.id/DataMKG/TEWS/gempadirasakan.json
+https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json
