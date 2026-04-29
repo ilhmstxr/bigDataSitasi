@@ -12,18 +12,36 @@ const config = require('./config');
  */
 function evaluateAnomalies(payload) {
   const alerts = [];
-  const { peaks } = payload;
+  const seismic = payload?.seismic_data;
+  const climate = payload?.climate_data;
+  const flags = seismic?.flags;
 
-  if (peaks?.vibration?.max_value > config.thresholds.vibration) {
+  // 1) Flag langsung dari firmware (D7S Pseudo-Emulation).
+  if (flags?.is_structure_collapsing) {
     alerts.push(
-      `Getaran Kritis: ${peaks.vibration.max_value} pada timestamp ${peaks.vibration.exact_timestamp}`
+      `Struktur Berisiko Runtuh: SI=${seismic.si_value_kayser} Kayser, PGA=${seismic.pga_value_gal} Gal`
+    );
+  } else if (flags?.is_earthquake) {
+    alerts.push(
+      `Gempa Terdeteksi: SI=${seismic.si_value_kayser} Kayser, PGA=${seismic.pga_value_gal} Gal`
     );
   }
 
-  if (peaks?.temperature?.max_value > config.thresholds.temperature) {
+  // 2) Threshold tambahan sisi server (defense-in-depth, mis. firmware miskonfigurasi).
+  if (
+    typeof seismic?.si_value_kayser === 'number' &&
+    seismic.si_value_kayser > config.thresholds.siKayser
+  ) {
     alerts.push(
-      `Suhu Overheat: ${peaks.temperature.max_value}C pada timestamp ${peaks.temperature.exact_timestamp}`
+      `SI Melampaui Ambang Server: ${seismic.si_value_kayser} > ${config.thresholds.siKayser} Kayser`
     );
+  }
+
+  if (
+    typeof climate?.max_temperature === 'number' &&
+    climate.max_temperature > config.thresholds.temperature
+  ) {
+    alerts.push(`Suhu Overheat: ${climate.max_temperature}C`);
   }
 
   return alerts;

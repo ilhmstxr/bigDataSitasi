@@ -1,13 +1,22 @@
 'use strict';
 
 /**
- * JSON Schema untuk validasi payload dari IoT (Fastify built-in Ajv).
+ * JSON Schema untuk validasi payload D7S Pseudo-Emulation dari IoT.
  * Reject 400 Bad Request bila tidak sesuai struktur ini.
+ *
+ * Kontrak ini sinkron dengan firmware ESP32 di Server/koneksi.cpp
+ * (lihat juga Server/spesifikasitambahan.md bagian "Kontrak Data").
  */
 const ingestSchema = {
   body: {
     type: 'object',
-    required: ['device_id', 'window_start', 'window_end', 'peaks'],
+    required: [
+      'device_id',
+      'window_start',
+      'window_end',
+      'seismic_data',
+      'climate_data',
+    ],
     additionalProperties: false,
     properties: {
       device_id: {
@@ -17,38 +26,33 @@ const ingestSchema = {
       },
       window_start: { type: 'integer', minimum: 0 },
       window_end: { type: 'integer', minimum: 0 },
-      peaks: {
+
+      seismic_data: {
         type: 'object',
-        required: ['temperature', 'humidity', 'vibration'],
+        required: ['si_value_kayser', 'pga_value_gal', 'flags'],
         additionalProperties: false,
         properties: {
-          temperature: {
+          si_value_kayser: { type: 'number', minimum: 0 },
+          pga_value_gal: { type: 'number', minimum: 0 },
+          flags: {
             type: 'object',
-            required: ['max_value', 'exact_timestamp'],
+            required: ['is_earthquake', 'is_structure_collapsing'],
             additionalProperties: false,
             properties: {
-              max_value: { type: 'number' },
-              exact_timestamp: { type: 'integer', minimum: 0 },
+              is_earthquake: { type: 'boolean' },
+              is_structure_collapsing: { type: 'boolean' },
             },
           },
-          humidity: {
-            type: 'object',
-            required: ['max_value', 'exact_timestamp'],
-            additionalProperties: false,
-            properties: {
-              max_value: { type: 'number' },
-              exact_timestamp: { type: 'integer', minimum: 0 },
-            },
-          },
-          vibration: {
-            type: 'object',
-            required: ['max_value', 'exact_timestamp'],
-            additionalProperties: false,
-            properties: {
-              max_value: { type: 'number' },
-              exact_timestamp: { type: 'integer', minimum: 0 },
-            },
-          },
+        },
+      },
+
+      climate_data: {
+        type: 'object',
+        required: ['max_temperature', 'max_humidity'],
+        additionalProperties: false,
+        properties: {
+          max_temperature: { type: 'number' },
+          max_humidity: { type: 'number' },
         },
       },
     },

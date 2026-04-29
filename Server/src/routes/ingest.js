@@ -5,11 +5,11 @@ const { ingestSchema } = require('../schemas');
 const { evaluateAnomalies, fireWebhookAsync } = require('../anomaly');
 
 const INSERT_SQL = `
-  INSERT INTO sensor_logs
+  INSERT INTO seismic_logs
     (device_id, window_start, window_end,
-     temp_max, temp_ts,
-     hum_max,  hum_ts,
-     vib_max,  vib_ts)
+     si_value_kayser, pga_value_gal,
+     is_earthquake, is_structure_collapsing,
+     max_temperature, max_humidity)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
@@ -31,17 +31,17 @@ async function ingestRoutes(fastify) {
         });
       }
 
-      const { peaks } = payload;
+      const { seismic_data, climate_data } = payload;
       const params = [
         payload.device_id,
         payload.window_start,
         payload.window_end,
-        peaks.temperature.max_value,
-        peaks.temperature.exact_timestamp,
-        peaks.humidity.max_value,
-        peaks.humidity.exact_timestamp,
-        peaks.vibration.max_value,
-        peaks.vibration.exact_timestamp,
+        seismic_data.si_value_kayser,
+        seismic_data.pga_value_gal,
+        seismic_data.flags.is_earthquake ? 1 : 0,
+        seismic_data.flags.is_structure_collapsing ? 1 : 0,
+        climate_data.max_temperature,
+        climate_data.max_humidity,
       ];
 
       // Func A - Logging Pipeline.
@@ -53,7 +53,7 @@ async function ingestRoutes(fastify) {
       } catch (err) {
         request.log.error(
           { err: err.message, code: err.code },
-          'Gagal insert sensor_logs'
+          'Gagal insert seismic_logs'
         );
         return reply.code(500).send({
           error: 'Internal Server Error',

@@ -15,7 +15,15 @@ const char* password = "";
 // PERINGATAN: Ganti "IP_SERVER_ANDA" dengan IP LAN komputer Anda (misal: 192.168.1.10)
 // JANGAN gunakan "localhost" atau "127.0.0.1" karena ESP32 akan menembak dirinya sendiri.
 const char* serverUrl = "http://IP_SERVER_ANDA:3000/api/ingest"; 
-const char* device_id = "ESP32_Mesin_01";
+const char* device_id = "ESP32_Datacenter_01";
+
+// --- KONSTANTA HEURISTIK D7S PSEUDO-EMULATION ---
+constexpr float GRAVITY_MS2          = 9.81f;
+constexpr float MS2_TO_GAL           = 100.0f;   // 1 m/s^2 = 100 Gal
+constexpr float PGA_TO_SI_KAYSER     = 0.07f;    // konstanta heuristik statis
+constexpr float TILT_THRESHOLD_DEG   = 20.0f;
+constexpr float SI_EARTHQUAKE_THRES  = 5.0f;
+constexpr float SI_COLLAPSE_THRES    = 40.0f;
 
 // --- KONFIGURASI PIN HARDWARE (ESP32-S3) ---
 #define DHTPIN 15
@@ -32,9 +40,10 @@ unsigned long window_start_time = 0;
 unsigned long last_dht_read = 0;
 unsigned long last_mpu_read = 0;
 
-float max_temp = 0.0; unsigned long ts_temp = 0;
-float max_hum = 0.0;  unsigned long ts_hum = 0;
-float max_vib = 0.0;  unsigned long ts_vib = 0;
+float max_temp     = 0.0f;
+float max_hum      = 0.0f;
+float max_vib_ms2  = 0.0f;   // puncak magnitudo getaran (m/s^2, sudah dikurangi gravitasi)
+bool  has_tilted   = false;  // flag: pernah melebihi 20 derajat dalam jendela 60 detik
 
 // Fungsi untuk mendapatkan UNIX Timestamp saat ini
 unsigned long getEpochTime() {
@@ -90,36 +99,44 @@ void loop() {
   unsigned long currentMillis = millis();
   unsigned long currentEpoch = getEpochTime();
 
-  // --- TASK 1: BACA GETARAN (Super Cepat: 50Hz / Setiap 20ms) ---
+  // --- TASK 1: BACA GETARAN + TILT (Super Cepat: 50Hz / Setiap 20ms) ---
   if (currentMillis - last_mpu_read >= 20) {
     last_mpu_read = currentMillis;
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
 
-    // Kalkulasi magnitudo getaran (X, Y, Z) dikurangi gravitasi standar
-    float raw_magnitude = sqrt(pow(a.acceleration.x, 2) + pow(a.acceleration.y, 2) + pow(a.acceleration.z, 2));
-    float current_vib = abs(raw_magnitude - 9.81); 
+    const float ax = a.acceleration.x;
+    const float ay = a.acceleration.y;
+    const float az = a.acceleration.z;
 
-    if (current_vib > max_vib) {
-      max_vib = current_vib;
-      ts_vib = currentEpoch;
+    // 1) Magnitudo getaran (m/s^2) dikurangi gravitasi standar.
+    float raw_magnitude = sqrt((ax * ax) + (ay * ay) + (az * az));
+    float current_vib   = fabsf(raw_magnitude - GRAVITY_MS2);
+    if (current_vib > max_vib_ms2) {
+      max_vib_ms2 = current_vib;
+    }
+
+    // 2) Kalkulasi Kemiringan: Pitch & Roll (derajat).
+    float pitch_deg = atan2f(-ax, sqrtf((ay * ay) + (az * az))) * 180.0f / (float)PI;
+    float roll_deg  = atan2f(ay, az) * 180.0f / (float)PI;
+    float tilt_abs  = fmaxf(fabsf(pitch_deg), fabsf(roll_deg));
+    if (tilt_abs > TILT_THRESHOLD_DEG) {
+      has_tilted = true;
     }
   }
 
   // --- TASK 2: BACA SUHU & KELEMBAPAN (Lambat: 0.5Hz / Setiap 2 detik) ---
   if (currentMillis - last_dht_read >= 2000) {
     last_dht_read = currentMillis;
-    
+
     float current_temp = dht.readTemperature();
-    float current_hum = dht.readHumidity();
+    float current_hum  = dht.readHumidity();
 
     if (!isnan(current_temp) && current_temp > max_temp) {
       max_temp = current_temp;
-      ts_temp = currentEpoch;
     }
     if (!isnan(current_hum) && current_hum > max_hum) {
       max_hum = current_hum;
-      ts_hum = currentEpoch;
     }
   }
 
@@ -127,9 +144,12 @@ void loop() {
   if (currentEpoch - window_start_time >= 60) {
     Serial.println("\n[INFO] Mengirim data agregasi 1 menit ke server...");
     sendDataToServer(currentEpoch);
-    
+
     // Reset agregasi untuk 1 menit berikutnya
-    max_temp = 0.0; max_hum = 0.0; max_vib = 0.0;
+    max_temp     = 0.0f;
+    max_hum      = 0.0f;
+    max_vib_ms2  = 0.0f;
+    has_tilted   = false;
     window_start_time = currentEpoch;
   }
 }
@@ -141,25 +161,31 @@ void sendDataToServer(unsigned long window_end) {
     return;
   }
 
-  // Bungkus JSON sesuai skema arsitektur
+  // --- TASK 3 (lanjut): Pseudo-Calculation D7S ---
+  // Transformasi heuristik dari magnitudo getaran (m/s^2) -> PGA (Gal) -> SI (Kayser).
+  const float pga_value_gal    = max_vib_ms2 * MS2_TO_GAL;
+  const float si_value_kayser  = pga_value_gal * PGA_TO_SI_KAYSER;
+
+  const bool is_earthquake          = (si_value_kayser > SI_EARTHQUAKE_THRES);
+  const bool is_structure_collapsing = (has_tilted) || (si_value_kayser > SI_COLLAPSE_THRES);
+
+  // Bungkus JSON sesuai kontrak D7S Pseudo-Emulation.
   StaticJsonDocument<512> doc;
-  doc["device_id"] = device_id;
+  doc["device_id"]    = device_id;
   doc["window_start"] = window_start_time;
-  doc["window_end"] = window_end;
+  doc["window_end"]   = window_end;
 
-  JsonObject peaks = doc.createNestedObject("peaks");
-  
-  JsonObject tempObj = peaks.createNestedObject("temperature");
-  tempObj["max_value"] = max_temp;
-  tempObj["exact_timestamp"] = ts_temp;
+  JsonObject seismic = doc.createNestedObject("seismic_data");
+  seismic["si_value_kayser"] = si_value_kayser;
+  seismic["pga_value_gal"]   = pga_value_gal;
 
-  JsonObject humObj = peaks.createNestedObject("humidity");
-  humObj["max_value"] = max_hum;
-  humObj["exact_timestamp"] = ts_hum;
+  JsonObject flags = seismic.createNestedObject("flags");
+  flags["is_earthquake"]           = is_earthquake;
+  flags["is_structure_collapsing"] = is_structure_collapsing;
 
-  JsonObject vibObj = peaks.createNestedObject("vibration");
-  vibObj["max_value"] = max_vib;
-  vibObj["exact_timestamp"] = ts_vib;
+  JsonObject climate = doc.createNestedObject("climate_data");
+  climate["max_temperature"] = max_temp;
+  climate["max_humidity"]    = max_hum;
 
   String jsonPayload;
   serializeJson(doc, jsonPayload);

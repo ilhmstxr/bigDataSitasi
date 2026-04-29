@@ -2,7 +2,9 @@
 
 /**
  * Helper: kirim payload dummy ke endpoint /api/ingest untuk uji manual.
- * Jalankan: node scripts/sendTest.js [normal|anomaly]
+ * Jalankan: node scripts/sendTest.js [normal|anomaly|collapse]
+ *
+ * Kontrak: D7S Pseudo-Emulation (Server/spesifikasitambahan.md).
  */
 
 const http = require('http');
@@ -11,25 +13,43 @@ const mode = process.argv[2] || 'normal';
 const now = Math.floor(Date.now() / 1000);
 
 const payloads = {
+  // Tenang: SI < 5.0 → tidak ada alert.
   normal: {
-    device_id: 'ESP32_Mesin_01',
+    device_id: 'ESP32_Datacenter_01',
     window_start: now - 60,
     window_end: now,
-    peaks: {
-      temperature: { max_value: 32.4, exact_timestamp: now - 25 },
-      humidity: { max_value: 65.0, exact_timestamp: now - 40 },
-      vibration: { max_value: 2.1, exact_timestamp: now - 10 },
+    seismic_data: {
+      si_value_kayser: 0.7, // ~ 10 Gal * 0.07
+      pga_value_gal: 10.0,
+      flags: { is_earthquake: false, is_structure_collapsing: false },
     },
+    climate_data: { max_temperature: 32.4, max_humidity: 65.0 },
   },
+
+  // Gempa terdeteksi: SI > 5.0 (mis. PGA 100 Gal → SI 7.0).
   anomaly: {
-    device_id: 'ESP32_Mesin_01',
+    device_id: 'ESP32_Datacenter_01',
     window_start: now - 60,
     window_end: now,
-    peaks: {
-      temperature: { max_value: 65.0, exact_timestamp: now - 45 },
-      humidity: { max_value: 70.0, exact_timestamp: now - 30 },
-      vibration: { max_value: 15.8, exact_timestamp: now - 5 },
+    seismic_data: {
+      si_value_kayser: 7.0,
+      pga_value_gal: 100.0,
+      flags: { is_earthquake: true, is_structure_collapsing: false },
     },
+    climate_data: { max_temperature: 65.0, max_humidity: 70.0 },
+  },
+
+  // Struktur runtuh: tilt > 20° atau SI > 40.
+  collapse: {
+    device_id: 'ESP32_Datacenter_01',
+    window_start: now - 60,
+    window_end: now,
+    seismic_data: {
+      si_value_kayser: 45.0,
+      pga_value_gal: 642.86,
+      flags: { is_earthquake: true, is_structure_collapsing: true },
+    },
+    climate_data: { max_temperature: 70.5, max_humidity: 55.0 },
   },
 };
 

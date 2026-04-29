@@ -17,7 +17,9 @@ const config = {
   },
   thresholds: {
     temperature: parseFloat(process.env.THRESHOLD_TEMP || '60.0'),
-    vibration: parseFloat(process.env.THRESHOLD_VIBRATION || '10.0'),
+    // Ambang SI Kayser sisi server (defense-in-depth). Default mengikuti
+    // SI_EARTHQUAKE_THRES di firmware (5.0).
+    siKayser: parseFloat(process.env.THRESHOLD_SI_KAYSER || '5.0'),
   },
   n8n: {
     webhookUrl: process.env.N8N_WEBHOOK_URL || '',
